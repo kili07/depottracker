@@ -23,7 +23,7 @@
 const KEY = 'depot.v1';
 /* Bei jeder Änderung hochzählen — wird in den Einstellungen angezeigt, damit
    sich auf dem Handy prüfen lässt, welche Fassung wirklich läuft. */
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 
 const THEME_KEY = 'depot.theme';
 /* `bar` ist die Hintergrundfarbe des Themes und landet im
@@ -193,11 +193,23 @@ const dfShort = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-dig
 const dfMonth = new Intl.DateTimeFormat('de-DE', { month: 'long', year: 'numeric' });
 const dfTime = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
 
-/* Eingaben können deutsches Komma enthalten — parseFloat allein verschluckt es.
-   Tausenderpunkte fliegen raus, sonst wird aus "1.250,50" die Zahl 1,25. */
+/* Eingaben können deutsches Komma oder englischen Punkt als Dezimaltrennzeichen
+   haben — und Tausenderpunkte obendrein. Maßgeblich ist das ZULETZT stehende
+   Trennzeichen: kommt es nur einmal vor, trennt es die Nachkommastellen, sonst
+   gruppiert es Tausender. Blind jeden Punkt vor drei Ziffern zu streichen ging
+   nicht: <input type="number"> liefert immer die Punktschreibweise, aus "0,125
+   Stück" wurde damit die Zahl 125 — Teilstücke waren schlicht nicht buchbar. */
 const num = (v) => {
-  const s = String(v == null ? '' : v).trim().replace(/\s/g, '').replace(/\.(?=\d{3}\b)/g, '');
-  const n = parseFloat(s.replace(',', '.'));
+  let s = String(v == null ? '' : v).trim().replace(/[\s\u00a0\u202f']/g, '');
+  if (!s) return 0;
+  const i = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
+  if (i >= 0) {
+    const sep = s[i];
+    s = s.indexOf(sep) === i
+      ? s.slice(0, i).replace(/[.,]/g, '') + '.' + s.slice(i + 1)   // Dezimaltrenner
+      : s.replace(/[.,]/g, '');                                     // Tausendertrenner
+  }
+  const n = parseFloat(s);
   return isFinite(n) ? n : 0;
 };
 
@@ -346,6 +358,8 @@ function openSheet(title, html, saveFn, saveLabel) {
   $('#sheetTitle').textContent = title;
   $('#sheetBody').innerHTML = html;
   $('#sheetBody').onclick = null;         // Handler des vorherigen Sheets verwerfen
+  $('#sheetBody').oninput = null;         // auch den: die Live-Summe der Buchung
+                                          // greift sonst im nächsten Formular ins Leere
   $('#sheetCancel').onclick = closeSheet; // ggf. überschriebenes Abbrechen zurücksetzen
   sheetSaveFn = saveFn || null;
   const btn = $('#sheetSave');
@@ -1162,23 +1176,41 @@ function openTx(id, back) {
 const CURRENCIES = ['EUR', 'USD', 'CHF', 'GBP', 'GBp', 'JPY', 'SEK', 'DKK',
   'NOK', 'PLN', 'CZK', 'CAD', 'AUD', 'HKD'];
 
-const draftFromPos = (p) => ({
-  kind: p.kind, name: p.name, sym: p.sym, mic: p.mic, exch: p.exch,
-  cgId: p.cgId, cur: p.cur, qty: p.qty, cost: p.cost, price: p.price, note: p.note,
-});
+/** Formularstand aus einer Position. Bestand und Einstand kommen aus der Buchung
+    „Anfangsbestand" und ausdrücklich NICHT aus p.qty/p.cost: sobald Käufe oder
+    Verkäufe gebucht sind, ist p.qty deren Ergebnis. Beim Speichern landete es
+    wieder als Anfangsbestand in der Buchung — und alles danach Gebuchte zählte
+    ein zweites Mal. Schon das bloße Umbenennen einer Position blähte so den
+    Bestand auf. Gibt es Buchungen, aber keinen Anfangsbestand, ist er null. */
+const draftFromPos = (p) => {
+  const t = initTx(p.id);
+  const hasTx = db.tx.some((x) => x.pid === p.id);
+  return {
+    kind: p.kind, name: p.name, sym: p.sym, mic: p.mic, exch: p.exch,
+    cgId: p.cgId, cur: p.cur, price: p.price, note: p.note,
+    qty:  t ? n0(t.qty)   : (hasTx ? 0 : n0(p.qty)),
+    cost: t ? n0(t.price) : (hasTx ? 0 : n0(p.cost)),
+  };
+};
 
 /** Formularstand einsammeln, bevor das Sheet ersetzt wird — beim Wechsel der
     Anlageklasse und vor der Suche. Ohne das wäre alles Getippte weg. */
 function readPosForm(draft) {
-  const g = (sel) => { const e = $(sel); return e ? e.value : ''; };
+  /* Fehlt ein Feld im gerade sichtbaren Formular — Cash hat weder Symbol noch
+     Kurs —, bleibt der bisherige Wert stehen, statt gelöscht zu werden. Sonst
+     wäre nach einem Ausflug auf „Cash" und zurück alles Getippte weg. */
+  const g = (sel, fb) => {
+    const e = $(sel);
+    return e ? e.value : (fb == null ? '' : String(fb));
+  };
   return Object.assign({}, draft, {
-    name: g('#pf_name').trim(),
-    sym: g('#pf_sym').trim(),
-    cur: g('#pf_cur') || draft.cur,
-    qty: num(g('#pf_qty')),
-    cost: num(g('#pf_cost')),
-    price: num(g('#pf_price')),
-    note: g('#pf_note').trim(),
+    name: g('#pf_name', draft.name).trim(),
+    sym: g('#pf_sym', draft.sym).trim(),
+    cur: g('#pf_cur', draft.cur) || draft.cur,
+    qty: num(g('#pf_qty', draft.qty)),
+    cost: num(g('#pf_cost', draft.cost)),
+    price: num(g('#pf_price', draft.price)),
+    note: g('#pf_note', draft.note).trim(),
   });
 }
 
@@ -1189,6 +1221,10 @@ function posForm(draft, editId, back) {
   const isCash = draft.kind === 'cash';
   const searchable = k.quote !== 'none';
   const curList = CURRENCIES.includes(draft.cur) ? CURRENCIES : CURRENCIES.concat([draft.cur]);
+  /* Liegen schon Buchungen vor, ist das Feld unten nicht der aktuelle Bestand,
+     sondern der Startpunkt, auf den sie gerechnet werden. Das muss dranstehen —
+     sonst trägt man dort den Bestand ein, den die Buchungen längst ergeben. */
+  const booked = !!editId && db.tx.some((x) => x.pid === editId && x.type !== 'init');
 
   openSheet(editId ? 'Position bearbeiten' : 'Neue Position', `
     <label>Anlageklasse</label>
@@ -1218,13 +1254,18 @@ function posForm(draft, editId, back) {
       ${draft.cgId ? `<p class="hint">CoinGecko-Kennung: ${esc(draft.cgId)}</p>` : ''}`}
 
     <div class="field-row">
-      <label>${isCash ? 'Betrag (€)' : 'Stück'}
+      <label>${booked ? (isCash ? 'Anfangsbetrag (€)' : 'Anfangsbestand (Stück)')
+        : (isCash ? 'Betrag (€)' : 'Stück')}
         <input id="pf_qty" type="number" inputmode="decimal" step="any"
           value="${draft.qty || ''}"></label>
       ${isCash ? '' : `<label>Ø-Einstand (€)
         <input id="pf_cost" type="number" inputmode="decimal" step="any"
           value="${draft.cost || ''}"></label>`}
     </div>
+    ${booked ? `<p class="hint">Der Startpunkt der Position — Deine gebuchten
+      ${isCash ? 'Ein- und Auszahlungen' : 'Käufe und Verkäufe'} werden darauf
+      gerechnet. Der heutige Bestand steht in der Übersicht der Position.</p>` : ''}
+    ${isCash || booked ? '' : '<p class="hint">Teilstücke sind erlaubt — z.B. 0,125.</p>'}
 
     ${isCash ? '' : `<label>Aktueller Kurs (${esc(draft.cur)})
       <input id="pf_price" type="number" inputmode="decimal" step="any"
@@ -1244,7 +1285,6 @@ function posForm(draft, editId, back) {
       // Formular neu aufbauen: Cash und Wertpapier haben andere Felder
       const d = readPosForm(draft);
       d.kind = b.dataset.kind;
-      if (d.kind === 'krypto' && !d.cgId) { d.sym = d.sym; }
       posForm(d, editId, back);
       return;
     }
@@ -1285,7 +1325,15 @@ function savePosForm(draft, editId, back) {
   let t = initTx(p.id);
   if (d.qty > 0) {
     if (!t) {
-      t = { id: uid(), ts: new Date().toISOString(), pid: p.id, type: 'init',
+      /* Der Anfangsbestand ist der Startpunkt und muss VOR allen bereits
+         gebuchten Käufen liegen — recalcPos läuft nach Zeitstempel und würde
+         den Bestand sonst zum Schluss wieder auf ihn zurücksetzen. */
+      const first = db.tx.filter((x) => x.pid === p.id)
+        .reduce((a, x) => (!a || String(x.ts) < a ? String(x.ts) : a), '');
+      const ts = first
+        ? new Date(new Date(first).getTime() - 1000).toISOString()
+        : new Date().toISOString();
+      t = { id: uid(), ts, pid: p.id, type: 'init',
         qty: 0, price: 0, fee: 0, amount: 0, gain: 0, note: '' };
       db.tx.push(t);
     }
@@ -1415,7 +1463,8 @@ function txForm(opts, back) {
           <input id="tf_price" type="number" inputmode="decimal" step="any"
             placeholder="${p.price ? nfa.format(pEur(p)) : '0,00'}"></label>`}
       </div>
-      ${isCash ? '' : `<label>Gebühren (€)
+      ${isCash ? '' : `<p class="hint">Teilstücke sind erlaubt — z.B. 0,125.</p>
+      <label>Gebühren (€)
         <input id="tf_fee" type="number" inputmode="decimal" step="any" placeholder="0,00"></label>`}`}
 
     <label>Notiz
@@ -1719,7 +1768,13 @@ function openSettings() {
         save(); closeSheet(); nav('home'); toast('Alle Daten gelöscht');
       }, openSettings, true);
   };
-  $('#impFile').onchange = (e) => importBackup(e.target.files[0]);
+  /* Feld leeren: sonst gilt dieselbe Datei beim zweiten Mal nicht als Änderung,
+     'change' bleibt aus und „Backup laden" tut scheinbar nichts. */
+  $('#impFile').onchange = (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    importBackup(f);
+  };
 }
 
 function exportBackup() {
