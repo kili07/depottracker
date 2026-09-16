@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>Portfolio</title>
+<script>
+/* Theme setzen, bevor das Stylesheet greift — sonst blitzt beim Start kurz das
+   Standard-Theme auf. Eigener, winziger Schlüssel: den kompletten Datensatz
+   hier zu parsen würde den Start bremsen. app.js hält ihn synchron. */
+(function () {
+  try {
+    var t = localStorage.getItem('pf.theme');
+    if (t) document.documentElement.dataset.theme = t;
+  } catch (e) { /* privater Modus o.ä. — dann bleibt es beim Standard */ }
+})();
+</script>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1 id="viewTitle">Übersicht</h1>
+  <button class="icon-btn" id="btnSettings" aria-label="Einstellungen">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19.14 12.94a7.49 7.49 0 0 0 .06-.94 7.49 7.49 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94L14.4 2.6a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.42c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.42c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.42c.59-.24 1.13-.56 1.62-.94l2.39.96c.24.1.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/></svg>
+  </button>
+</header>
+
+<main id="main">
+  <section class="view" id="view-home">
+    <div class="hero card">
+      <div class="hero-label">Gesamtwert</div>
+      <div class="hero-value num" id="homeValue">0,00 €</div>
+      <div class="hero-change num" id="homeChange">±0,00 € · ±0,00 %</div>
+      <div class="hero-meta" id="homeMeta">Noch keine Positionen</div>
+    </div>
+
+    <div class="section-head">
+      <h2>Aufteilung</h2>
+    </div>
+    <div class="card" id="homeBreakdown"></div>
+
+    <div class="card hidden" id="homeStale"></div>
+
+    <div class="empty hidden" id="homeEmpty">
+      <p>Noch keine Positionen erfasst.</p>
+      <button class="btn btn-primary" id="homeEmptyAdd">Erste Position anlegen</button>
+    </div>
+  </section>
+
+  <section class="view hidden" id="view-liste">
+    <div class="card hidden" id="listeEmpty">
+      <p class="muted" style="padding:var(--sp-4)">Noch keine Positionen erfasst.</p>
+    </div>
+    <div id="listeItems"></div>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <button data-nav="home" class="on">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 3 2 12h3v8h5v-6h4v6h5v-8h3L12 3Z"/></svg>
+    <span>Übersicht</span>
+  </button>
+  <button data-nav="liste">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/></svg>
+    <span>Positionen</span>
+  </button>
+  <button id="btnNew" class="fab-tab" aria-label="Neue Position">＋</button>
+</nav>
+
+<!-- Sheet: trägt alle Formulare und Dialoge -->
+<div class="scrim hidden" id="scrim"></div>
+<div class="sheet hidden" id="sheet">
+  <div class="sheet-grip"></div>
+  <div class="sheet-head">
+    <button class="link" id="sheetCancel">Abbrechen</button>
+    <strong id="sheetTitle"></strong>
+    <button class="link strong" id="sheetSave">Sichern</button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
