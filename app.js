@@ -5,7 +5,7 @@
    APP_VERSION: bei jeder Änderung hochzählen — steht in den Einstellungen
    und wird vom Update-Mechanismus im Cache gesucht (siehe wireUpdates). */
 const KEY = 'pf.v1';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 const THEME_KEY = 'pf.theme';
 const THEMES = {
@@ -16,6 +16,9 @@ const THEMES = {
 const TYPE_ORDER = ['aktie', 'etf', 'fonds', 'krypto'];
 const TYPE_LABELS = { aktie: 'Aktie', etf: 'ETF', fonds: 'Fonds', krypto: 'Krypto' };
 const TYPE_ICON = { aktie: '📈', etf: '📊', fonds: '🏦', krypto: '₿' };
+/* Dieselben Tokens wie die type-dot-Farben in style.css — damit Donut,
+   Balken und die Punkte in der Übersicht immer zusammenpassen. */
+const TYPE_COLOR_VAR = { aktie: 'var(--accent)', etf: 'var(--up)', fonds: 'var(--warn)', krypto: 'var(--krypto)' };
 
 /* Ab diesem Alter (Tage) gilt ein manuell gepflegter Kurs als veraltet. */
 const STALE_DAYS = 14;
@@ -285,8 +288,26 @@ function positionMetrics(pos) {
   return { q, qty, buy, investedEUR, currentEUR, gvEUR, gvPct };
 }
 
+/* Fasst alle Positionen nach Anlageklasse zusammen — Grundlage für die
+   Aufteilung auf der Übersicht UND für den Donut im Diagramme-Tab, damit
+   beide garantiert dieselben Zahlen zeigen. */
+function computeBreakdown() {
+  let investedTotal = 0, currentTotal = 0, missing = 0;
+  const byType = {};
+  db.positions.forEach((pos) => {
+    const m = positionMetrics(pos);
+    if (m.investedEUR != null) investedTotal += m.investedEUR;
+    if (m.currentEUR != null) currentTotal += m.currentEUR; else missing++;
+    const t = byType[pos.type] || (byType[pos.type] = { invested: 0, current: 0, count: 0, missing: 0 });
+    t.count++;
+    if (m.investedEUR != null) t.invested += m.investedEUR;
+    if (m.currentEUR != null) t.current += m.currentEUR; else t.missing++;
+  });
+  return { byType, investedTotal, currentTotal, missing };
+}
+
 /* ── Navigation ─────────────────────────────────────────────────── */
-const TITLES = { home: 'Übersicht', liste: 'Positionen' };
+const TITLES = { home: 'Übersicht', liste: 'Positionen', charts: 'Diagramme' };
 let view = 'home';
 
 function nav(v) {
@@ -302,6 +323,7 @@ function nav(v) {
 function render() {
   if (view === 'home') renderHome();
   else if (view === 'liste') renderListe();
+  else if (view === 'charts') renderCharts();
 }
 
 function renderHome() {
@@ -316,18 +338,7 @@ function renderHome() {
     return;
   }
 
-  let investedTotal = 0, currentTotal = 0, missing = 0;
-  const byType = {};
-  positions.forEach((pos) => {
-    const m = positionMetrics(pos);
-    if (m.investedEUR != null) investedTotal += m.investedEUR;
-    if (m.currentEUR != null) currentTotal += m.currentEUR; else missing++;
-    const t = byType[pos.type] || (byType[pos.type] = { invested: 0, current: 0, count: 0, missing: 0 });
-    t.count++;
-    if (m.investedEUR != null) t.invested += m.investedEUR;
-    if (m.currentEUR != null) t.current += m.currentEUR; else t.missing++;
-  });
-
+  const { byType, investedTotal, currentTotal, missing } = computeBreakdown();
   const gv = currentTotal - investedTotal;
   const gvPct = investedTotal ? (gv / investedTotal * 100) : 0;
 
@@ -394,6 +405,92 @@ function renderListe() {
         </div>
       </div>`;
   }).join('');
+}
+
+/* ── Diagramme ──────────────────────────────────────────────────
+   Bewusst ohne Chart-Bibliothek: der Donut besteht aus übereinandergelegten
+   SVG-Kreisen, deren stroke-dasharray/-dashoffset je Segment berechnet
+   werden — ein Standardtrick, der ganz ohne Pfad-Mathematik auskommt. */
+function donutSVG(segments, total) {
+  const r = 70, cx = 100, cy = 100, sw = 28;
+  const circ = 2 * Math.PI * r;
+  let acc = 0;
+  const rings = segments.map((seg) => {
+    const frac = total > 0 ? seg.value / total : 0;
+    const len = frac * circ;
+    const dashoffset = -acc;
+    acc += len;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${seg.color}"
+      stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(circ - len).toFixed(2)}"
+      stroke-dashoffset="${dashoffset.toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" />`;
+  }).join('');
+  const totalTxt = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(total);
+  return `
+    <svg viewBox="0 0 200 200" class="donut" role="img" aria-label="Verteilung nach Anlageklasse">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--line)" stroke-width="${sw}" />
+      ${rings}
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" class="donut-total">${esc(totalTxt)}</text>
+      <text x="${cx}" y="${cy + 16}" text-anchor="middle" class="donut-label">GESAMTWERT</text>
+    </svg>`;
+}
+
+function renderCharts() {
+  const { byType, currentTotal } = computeBreakdown();
+  const hasPositions = db.positions.length > 0;
+  const hasValue = currentTotal > 0;
+
+  $('#chartsEmpty').classList.toggle('hidden', hasValue);
+  $('#chartsContent').classList.toggle('hidden', !hasValue);
+  if (!hasValue) {
+    $('#chartsEmptyText').textContent = hasPositions
+      ? 'Kurse werden geladen …'
+      : 'Noch keine Positionen erfasst.';
+    return;
+  }
+
+  const segments = TYPE_ORDER.filter((t) => byType[t] && byType[t].current > 0)
+    .map((t) => ({ type: t, value: byType[t].current, color: TYPE_COLOR_VAR[t] }));
+
+  const legend = segments.map((seg) => {
+    const b = byType[seg.type];
+    const pct = currentTotal > 0 ? (seg.value / currentTotal * 100) : 0;
+    return `
+      <div class="breakdown-row">
+        <div class="breakdown-name"><span class="type-dot ${seg.type}"></span>${TYPE_ICON[seg.type]} ${esc(TYPE_LABELS[seg.type])}</div>
+        <div class="breakdown-vals">
+          <div class="num">${fmtMoney(b.current, 'EUR')}</div>
+          <div class="muted" style="font-size:12px">${pf2.format(pct)} %</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  $('#chartDonut').innerHTML = `
+    <div class="donut-wrap">
+      ${donutSVG(segments, currentTotal)}
+      <div class="donut-legend">${legend}</div>
+    </div>`;
+
+  const TOP_N = 6;
+  const rows = db.positions.map((pos) => ({ pos, m: positionMetrics(pos) })).filter((r) => r.m.currentEUR != null);
+  rows.sort((a, b) => b.m.currentEUR - a.m.currentEUR);
+  const top = rows.slice(0, TOP_N);
+  const restValue = rows.slice(TOP_N).reduce((s, r) => s + r.m.currentEUR, 0);
+
+  const barRow = (label, value, color) => {
+    const pct = currentTotal > 0 ? (value / currentTotal * 100) : 0;
+    return `
+      <div class="bar-row">
+        <div class="bar-row-head">
+          <span class="bar-row-label">${esc(label)}</span>
+          <span class="bar-row-val num">${fmtMoney(value, 'EUR')} · ${pf2.format(pct)} %</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct.toFixed(2)}%; background:${color}"></div></div>
+      </div>`;
+  };
+
+  const bars = top.map(({ pos, m }) => barRow(`${TYPE_ICON[pos.type]} ${pos.name}`, m.currentEUR, TYPE_COLOR_VAR[pos.type])).join('');
+  const restRow = restValue > 0 ? barRow(`Sonstige (${rows.length - TOP_N})`, restValue, 'var(--muted)') : '';
+  $('#chartHoldings').innerHTML = bars + restRow;
 }
 
 /* ── Sheet-System und Dialoge ───────────────────────────────────── */

@@ -274,3 +274,19 @@ main{padding:0 var(--pad) var(--sp-6)}
 .stepper{display:flex; gap:6px; justify-content:center; margin-bottom:var(--sp-4)}
 .stepper span{width:6px; height:6px; border-radius:50%; background:var(--line)}
 .stepper span.on{background:var(--accent)}
+
+/* Diagramme — Donut aus SVG-Kreisen (stroke-dasharray je Segment) und
+   Balken aus einfachen divs. Bewusst ohne Bibliothek, siehe Bauanleitung. */
+.donut-wrap{display:flex; flex-direction:column; align-items:center; gap:var(--sp-4)}
+.donut{width:100%; max-width:220px; display:block}
+.donut-total{fill:var(--text); font-size:15px; font-weight:700; font-family:var(--font-num)}
+.donut-label{fill:var(--muted); font-size:10px}
+.donut-legend{width:100%}
+
+.bar-row{margin-bottom:var(--sp-4)}
+.bar-row:last-child{margin-bottom:0}
+.bar-row-head{display:flex; justify-content:space-between; gap:var(--sp-2); font-size:13px; margin-bottom:6px}
+.bar-row-label{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.bar-row-val{color:var(--text-2); flex-shrink:0}
+.bar-track{height:8px; border-radius:var(--r-pill); background:var(--surface-2); overflow:hidden}
+.bar-fill{height:100%; border-radius:var(--r-pill)}

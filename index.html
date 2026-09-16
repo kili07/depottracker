@@ -59,6 +59,19 @@
     </div>
     <div id="listeItems"></div>
   </section>
+
+  <section class="view hidden" id="view-charts">
+    <div class="empty hidden" id="chartsEmpty">
+      <p id="chartsEmptyText">Noch keine Positionen erfasst.</p>
+    </div>
+    <div id="chartsContent" class="hidden">
+      <div class="section-head"><h2>Verteilung nach Anlageklasse</h2></div>
+      <div class="card" id="chartDonut"></div>
+
+      <div class="section-head"><h2>Größte Positionen</h2></div>
+      <div class="card" id="chartHoldings"></div>
+    </div>
+  </section>
 </main>
 
 <nav class="tabbar">
@@ -69,6 +82,13 @@
   <button data-nav="liste">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/></svg>
     <span>Positionen</span>
+  </button>
+  <button data-nav="charts">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+      <path d="M12 12 L12 2 A10 10 0 0 1 22 12 Z"/>
+      <path d="M12 12 L22 12 A10 10 0 1 1 12 2 Z" opacity=".35"/>
+    </svg>
+    <span>Diagramme</span>
   </button>
   <button id="btnNew" class="fab-tab" aria-label="Neue Position">＋</button>
 </nav>
