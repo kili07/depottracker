@@ -28,16 +28,20 @@ window.Quotes = (function () {
 
   /** JSON holen, mit Zeitlimit und verständlicher Fehlermeldung. Ohne eigenes
       Zeitlimit hängt ein Abruf im Funkloch bis zum Timeout des Browsers —
-      gefühlt ewig, und der Knopf dreht sich weiter. */
+      gefühlt ewig, und der Knopf dreht sich weiter.
+
+      Fehlerhafte Antworten (4xx/5xx) haben bei Twelve Data trotzdem einen
+      JSON-Body mit der eigentlichen Ursache — den lesen wir mit, statt nur
+      die Statuszahl zu zeigen. */
   function jget(url) {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), TIMEOUT);
     return fetch(url, { signal: ctl.signal, cache: 'no-store', referrerPolicy: 'no-referrer' })
-      .then((r) => {
+      .then((r) => r.json().catch(() => null).then((d) => {
         if (r.status === 429) throw new Error('Zu viele Abrufe — kurz warten');
-        if (!r.ok) throw new Error('Server antwortet mit ' + r.status);
-        return r.json();
-      })
+        if (!r.ok) throw new Error((d && d.message && d.message.slice(0, 100)) || ('Server antwortet mit ' + r.status));
+        return d;
+      }))
       .catch((e) => {
         if (e.name === 'AbortError') throw new Error('Zeitüberschreitung');
         if (e instanceof TypeError) throw new Error('Keine Verbindung');
